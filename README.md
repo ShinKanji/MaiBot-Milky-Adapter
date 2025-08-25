@@ -190,6 +190,6 @@ ws://{IP}:{端口}/event?access_token={access_token}
 # 特别鸣谢
 感谢[@UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)的 NapCat Adapter 代码参考
 
-特别感谢[@Maple127667](https://github.com/Maple127667)对本项目代码思路的支持
+特别感谢[@Maple127667](https://github.com/Maple127667)对原项目代码思路的支持
 
-以及[@墨梓柒](https://github.com/DrSmoothl)对部分代码想法的支持
+以及[@墨梓柒](https://github.com/DrSmoothl)对原项目部分代码想法的支持
