@@ -1,13 +1,6 @@
 from src.logger import logger
 from src.config import global_config
-from src.utils import (
-    get_group_info,
-    get_member_info,
-    get_image_base64,
-    get_record_detail,
-    get_self_info,
-    get_message_detail,
-)
+from src.utils import get_image_base64
 from .qq_emoji_list import qq_face
 from .message_sending import message_send_instance
 from . import RealMessageType, MessageType, ACCEPT_FORMAT
@@ -15,7 +8,6 @@ from . import RealMessageType, MessageType, ACCEPT_FORMAT
 import time
 import json
 from typing import List, Tuple, Optional, Dict, Any
-import uuid
 
 from maim_message import (
     UserInfo,
@@ -224,7 +216,7 @@ class MessageHandler:
         message_info: BaseMessageInfo = BaseMessageInfo(
             platform=global_config.maibot_server.platform_name,
             message_id=str(message_seq),  # 使用消息序列号作为消息ID
-            time=message_time,
+            time=float(message_time),
             user_info=user_info,
             group_info=group_info,
             template_info=template_info,
@@ -507,33 +499,96 @@ class MessageHandler:
         seg_message.append(Seg(type="text", data=f"[回复消息 {message_seq}]"))
         return seg_message
 
-    async def handle_forward_message(self, message_list: list) -> Seg | None:
+    async def handle_forward_message(self, raw_message: dict) -> Seg | None:
         """
-        递归处理转发消息，并按照动态方式确定图片处理方式
-        Parameters:
-            message_list: list: 转发消息列表
+        对外接口：处理转发消息 (IncomingForwardedMessage)
         """
-        # Milky 可能不直接支持转发消息，暂时返回占位符
-        return Seg(type="text", data="[转发消息]")
+        messages = await self._get_forward_message(raw_message)
+        if not messages:
+            return None
 
-    async def _handle_forward_message(self, message_list: list, layer: int) -> Tuple[Seg, int] | Tuple[None, int]:
-        # sourcery skip: low-code-quality
+        seg, _ = await self._handle_forward_message(messages)
+        return seg
+
+    async def _handle_forward_message(
+        self, 
+        message_list: list, 
+        layer: int = 0
+    ) -> Tuple[Seg | None, int]:
         """
         递归处理实际转发消息
         Parameters:
-            message_list: list: 转发消息列表，首层对应messages字段，后面对应content字段
+            message_list: list: 转发消息列表，首层对应 messages 字段，后面对应 content 字段
             layer: int: 当前层级
         Returns:
-            seg_data: Seg: 处理后的消息段
+            seg_data: Seg | None: 处理后的消息段
             image_count: int: 图片数量
         """
-        # Milky 可能不直接支持转发消息，暂时返回占位符
-        return Seg(type="text", data="[转发消息]"), 0
+        if not message_list:
+            logger.warning(f"_handle_forward_message: 第 {layer} 层转发消息为空")
+            return Seg(type="text", data="[转发消息]"), 0
 
-    async def _get_forward_message(self, raw_message: dict) -> Dict[str, Any] | None:
-        # Milky 可能不直接支持转发消息，暂时返回 None
-        logger.warning("Milky 暂不支持获取转发消息")
-        return None
+        seg_messages: list = []
+        image_count = 0
 
+        for msg in message_list:
+            sender_name: str = msg.get("sender_name", "未知")
+            ts: int = msg.get("time", 0)
+            avatar_url: str = msg.get("avatar_url", "")
+
+            # 遍历消息段
+            for seg in msg.get("segments", []):
+                seg_type = seg.get("type")
+                seg_data = seg.get("data")
+
+                if not seg_type:
+                    logger.warning(f"_handle_forward_message: 无效消息段 {seg}")
+                    continue
+
+                if seg_type == "forward":
+                    # 嵌套转发，递归调用
+                    nested_messages = seg_data.get("messages")
+                    nested_seg, nested_img_count = await self._handle_forward_message(nested_messages, layer + 1)
+                    if nested_seg:
+                        seg_messages.append(nested_seg)
+                    image_count += nested_img_count
+                elif seg_type == "image":
+                    seg_messages.append(Seg(type="image", data=seg_data))
+                    image_count += 1
+                else:
+                    seg_messages.append(Seg(type=seg_type, data=seg_data))
+
+            # 加入来源信息
+            seg_messages.append(Seg(type="text", data=f"—— 来自 {sender_name} ({ts}) ——"))
+            if avatar_url:
+                seg_messages.append(Seg(type="image", data={"url": avatar_url}))
+                image_count += 1
+
+        return Seg(type="forward", data={"messages": seg_messages}), image_count
+
+    async def _get_forward_message(self, raw_message: dict) -> list[dict] | None:
+        """
+        从原始消息中提取转发消息列表 (IncomingForwardedMessage[])
+        
+        Parameters:
+            raw_message: dict - 原始消息
+        Returns:
+            messages: list[dict] | None - 转发消息列表，如果没有则返回 None
+        """
+        raw_message_data: dict = raw_message.get("data")
+        if not raw_message_data:
+            logger.warning("_get_forward_message: 缺少 data 字段")
+            return None
+
+        messages: list = raw_message_data.get("messages")
+        if not messages:
+            logger.warning("_get_forward_message: data 中未找到 messages 字段")
+            return None
+
+        if not isinstance(messages, list):
+            logger.warning(f"_get_forward_message: messages 类型异常，期望 list，实际 {type(messages)}")
+            return None
+
+        return messages
 
 message_handler = MessageHandler()
