@@ -1,5 +1,4 @@
 import json
-import websockets as Server
 import uuid
 from maim_message import (
     UserInfo,
@@ -12,19 +11,15 @@ from typing import Dict, Any, Tuple
 
 from . import CommandType
 from .config import global_config
-from .response_pool import get_response
 from .logger import logger
 from .utils import get_image_format, convert_image_to_gif
 from .recv_handler.message_sending import message_send_instance
+from .milky_com_layer import milky_com
 
 
 class SendHandler:
     def __init__(self):
-        self.server_connection: Server.ServerConnection = None
-
-    async def set_server_connection(self, server_connection: Server.ServerConnection) -> None:
-        """设置Napcat连接"""
-        self.server_connection = server_connection
+        self.milky_com = milky_com
 
     async def handle_message(self, raw_message_base_dict: dict) -> None:
         raw_message_base: MessageBase = MessageBase.from_dict(raw_message_base_dict)
@@ -45,8 +40,6 @@ class SendHandler:
         group_info: GroupInfo = message_info.group_info
         user_info: UserInfo = message_info.user_info
         target_id: int = None
-        action: str = None
-        id_name: str = None
         processed_message: list = []
         try:
             processed_message = await self.handle_seg_recursive(message_segment)
@@ -61,30 +54,22 @@ class SendHandler:
         if group_info and user_info:
             logger.debug("发送群聊消息")
             target_id = group_info.group_id
-            action = "send_group_msg"
-            id_name = "group_id"
+            response = await self.send_group_message_to_milky(target_id, processed_message)
         elif user_info:
             logger.debug("发送私聊消息")
             target_id = user_info.user_id
-            action = "send_private_msg"
-            id_name = "user_id"
+            response = await self.send_private_message_to_milky(target_id, processed_message)
         else:
             logger.error("无法识别的消息类型")
             return
-        logger.info("尝试发送到napcat")
-        response = await self.send_message_to_napcat(
-            action,
-            {
-                id_name: target_id,
-                "message": processed_message,
-            },
-        )
+            
         if response.get("status") == "ok":
             logger.info("消息发送成功")
-            qq_message_id = response.get("data", {}).get("message_id")
-            await self.message_sent_back(raw_message_base, qq_message_id)
+            # Milky 返回的消息序列号
+            message_seq = response.get("data", {}).get("message_seq")
+            await self.message_sent_back(raw_message_base, str(message_seq))
         else:
-            logger.warning(f"消息发送失败，napcat返回：{str(response)}")
+            logger.warning(f"消息发送失败，Milky返回：{str(response)}")
 
     async def send_command(self, raw_message_base: MessageBase) -> None:
         """
@@ -121,11 +106,11 @@ class SendHandler:
             logger.error("命令或参数缺失")
             return None
 
-        response = await self.send_message_to_napcat(command, args_dict)
+        response = await self.send_command_to_milky(command, args_dict)
         if response.get("status") == "ok":
             logger.info(f"命令 {command_name} 执行成功")
         else:
-            logger.warning(f"命令 {command_name} 执行失败，napcat返回：{str(response)}")
+            logger.warning(f"命令 {command_name} 执行失败，Milky返回：{str(response)}")
 
     def get_level(self, seg_data: Seg) -> int:
         if seg_data.type == "seglist":
@@ -289,7 +274,7 @@ class SendHandler:
             group_info (GroupInfo): 群聊信息（对应目标群聊）
 
         Returns:
-            Tuple[CommandType, Dict[str, Any]]
+            Tuple[str, Dict[str, Any]]
         """
         duration: int = int(args["duration"])
         user_id: int = int(args["qq_id"])
@@ -301,7 +286,7 @@ class SendHandler:
         if duration > 2592000:
             raise ValueError("封禁时间不能超过30天")
         return (
-            CommandType.GROUP_BAN.value,
+            "set_group_member_mute",
             {
                 "group_id": group_id,
                 "user_id": user_id,
@@ -317,7 +302,7 @@ class SendHandler:
             group_info (GroupInfo): 群聊信息（对应目标群聊）
 
         Returns:
-            Tuple[CommandType, Dict[str, Any]]
+            Tuple[str, Dict[str, Any]]
         """
         enable = args["enable"]
         assert isinstance(enable, bool), "enable参数必须是布尔值"
@@ -325,10 +310,10 @@ class SendHandler:
         if group_id <= 0:
             raise ValueError("群组ID无效")
         return (
-            CommandType.GROUP_WHOLE_BAN.value,
+            "set_group_whole_mute",
             {
                 "group_id": group_id,
-                "enable": enable,
+                "is_mute": enable,
             },
         )
 
@@ -340,7 +325,7 @@ class SendHandler:
             group_info (GroupInfo): 群聊信息（对应目标群聊）
 
         Returns:
-            Tuple[CommandType, Dict[str, Any]]
+            Tuple[str, Dict[str, Any]]
         """
         user_id: int = int(args["qq_id"])
         group_id: int = int(group_info.group_id)
@@ -349,7 +334,7 @@ class SendHandler:
         if user_id <= 0:
             raise ValueError("用户ID无效")
         return (
-            CommandType.GROUP_KICK.value,
+            "kick_group_member",
             {
                 "group_id": group_id,
                 "user_id": user_id,
@@ -365,7 +350,7 @@ class SendHandler:
             group_info (GroupInfo): 群聊信息（对应目标群聊）
 
         Returns:
-            Tuple[CommandType, Dict[str, Any]]
+            Tuple[str, Dict[str, Any]]
         """
         user_id: int = int(args["qq_id"])
         if group_info is None:
@@ -377,7 +362,7 @@ class SendHandler:
         if user_id <= 0:
             raise ValueError("用户ID无效")
         return (
-            CommandType.SEND_POKE.value,
+            "send_group_nudge",
             {
                 "group_id": group_id,
                 "user_id": user_id,
@@ -391,28 +376,28 @@ class SendHandler:
             args (Dict[str, Any]): 参数字典
 
         Returns:
-            Tuple[CommandType, Dict[str, Any]]
+            Tuple[str, Dict[str, Any]]
         """
         try:
-            message_id = int(args["message_id"])
-            if message_id <= 0:
-                raise ValueError("消息ID无效")
+            message_seq = int(args["message_id"])
+            if message_seq <= 0:
+                raise ValueError("消息序列号无效")
         except KeyError:
             raise ValueError("缺少必需参数: message_id") from None
         except (ValueError, TypeError) as e:
-            raise ValueError(f"消息ID无效: {args['message_id']} - {str(e)}") from None
+            raise ValueError(f"消息序列号无效: {args['message_id']} - {str(e)}") from None
 
         return (
-            CommandType.DELETE_MSG.value,
+            "recall_group_message",
             {
-                "message_id": message_id,
+                "message_seq": message_seq,
             },
         )
 
     def handle_ai_voice_send_command(self, args: Dict[str, Any], group_info: GroupInfo) -> Tuple[str, Dict[str, Any]]:
         """
         处理AI语音发送命令的逻辑。
-        并返回 NapCat 兼容的 (action, params) 元组。
+        并返回 Milky 兼容的 (action, params) 元组。
         """
         if not group_info or not group_info.group_id:
             raise ValueError("AI语音发送命令必须在群聊上下文中使用")
@@ -427,29 +412,41 @@ class SendHandler:
             raise ValueError(f"AI语音发送命令参数不完整: character='{character_id}', text='{text_content}'")
 
         return (
-            CommandType.AI_VOICE_SEND.value,
+            "send_group_message",
             {
                 "group_id": group_id,
-                "text": text_content,
-                "character": character_id,
+                "message": [{"type": "text", "data": {"text": text_content}}],
             },
         )
 
-    async def send_message_to_napcat(self, action: str, params: dict) -> dict:
-        request_uuid = str(uuid.uuid4())
-        payload = json.dumps({"action": action, "params": params, "echo": request_uuid})
-        await self.server_connection.send(payload)
+    async def send_private_message_to_milky(self, user_id: int, message: list) -> dict:
+        """通过 Milky 发送私聊消息"""
         try:
-            response = await get_response(request_uuid)
-        except TimeoutError:
-            logger.error("发送消息超时，未收到响应")
-            return {"status": "error", "message": "timeout"}
+            response = await self.milky_com.send_private_message(user_id, message)
+            return response
         except Exception as e:
-            logger.error(f"发送消息失败: {e}")
+            logger.error(f"发送私聊消息失败: {e}")
             return {"status": "error", "message": str(e)}
-        return response
 
-    async def message_sent_back(self, message_base: MessageBase, qq_message_id: str) -> None:
+    async def send_group_message_to_milky(self, group_id: int, message: list) -> dict:
+        """通过 Milky 发送群聊消息"""
+        try:
+            response = await self.milky_com.send_group_message(group_id, message)
+            return response
+        except Exception as e:
+            logger.error(f"发送群聊消息失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def send_command_to_milky(self, action: str, params: dict) -> dict:
+        """通过 Milky 发送命令"""
+        try:
+            response = await self.milky_com.call_api(action, params)
+            return response
+        except Exception as e:
+            logger.error(f"发送命令失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def message_sent_back(self, message_base: MessageBase, message_seq: str) -> None:
         # 修改 additional_config，添加 echo 字段
         if message_base.message_info.additional_config is None:
             message_base.message_info.additional_config = {}
@@ -461,10 +458,10 @@ class SendHandler:
 
         # 修改 message_segment 为 notify 类型
         message_base.message_segment = Seg(
-            type="notify", data={"sub_type": "echo", "echo": mmc_message_id, "actual_id": qq_message_id}
+            type="notify", data={"sub_type": "echo", "echo": mmc_message_id, "actual_id": message_seq}
         )
         await message_send_instance.message_send(message_base)
-        logger.debug("已回送消息ID")
+        logger.debug("已回送消息序列号")
         return
 
 

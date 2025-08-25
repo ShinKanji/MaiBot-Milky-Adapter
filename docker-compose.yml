@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  maibot-milky-adapter:
+    build: .
+    container_name: maibot-milky-adapter
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+    networks:
+      - maibot-network
+    depends_on:
+      - maibot-core
+
+  maibot-core:
+    image: maibot/core:latest
+    container_name: maibot-core
+    restart: unless-stopped
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./maibot-data:/app/data
+    networks:
+      - maibot-network
+
+networks:
+  maibot-network:
+    driver: bridge
+
+volumes:
+  maibot-data:

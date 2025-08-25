@@ -18,4 +18,4 @@ logger.add(
 )
 # 创建样式不同的 logger
 custom_logger = logger.bind(name="maim_message")
-logger = logger.bind(name="MaiBot-Napcat-Adapter")
+logger = logger.bind(name="MaiBot-Milky-Adapter")

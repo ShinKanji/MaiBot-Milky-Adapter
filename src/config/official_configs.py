@@ -21,15 +21,21 @@ class NicknameConfig(ConfigBase):
 
 
 @dataclass
-class NapcatServerConfig(ConfigBase):
+class MilkyServerConfig(ConfigBase):
     host: str = "localhost"
-    """Napcat服务端的主机地址"""
+    """Milky服务端的主机地址"""
 
-    port: int = 8095
-    """Napcat服务端的端口号"""
+    port: int = 8080
+    """Milky服务端的端口号"""
 
-    heartbeat_interval: int = 30
-    """Napcat心跳间隔时间，单位为秒"""
+    event_endpoint: str = "/event"
+    """Milky事件推送端点"""
+
+    api_endpoint: str = "/api"
+    """Milky API调用端点"""
+
+    access_token: str = ""
+    """Milky API访问令牌，用于鉴权"""
 
 
 @dataclass

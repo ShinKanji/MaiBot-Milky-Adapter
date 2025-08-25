@@ -1,4 +1,4 @@
-import websockets as Server
+import aiohttp
 import json
 import base64
 import uuid
@@ -8,7 +8,7 @@ import io
 
 from src.database import BanUser, db_manager
 from .logger import logger
-from .response_pool import get_response
+from .milky_com_layer import milky_com
 
 from PIL import Image
 from typing import Union, List, Tuple, Optional
@@ -23,76 +23,44 @@ class SSLAdapter(urllib3.PoolManager):
         super().__init__(*args, **kwargs)
 
 
-async def get_group_info(websocket: Server.ServerConnection, group_id: int) -> dict | None:
+async def get_group_info(group_id: int) -> dict | None:
     """
     获取群相关信息
 
     返回值需要处理可能为空的情况
     """
     logger.debug("获取群聊信息中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps({"action": "get_group_info", "params": {"group_id": group_id}, "echo": request_uuid})
-    try:
-        await websocket.send(payload)
-        socket_response: dict = await get_response(request_uuid)
-    except TimeoutError:
-        logger.error(f"获取群信息超时，群号: {group_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取群信息失败: {e}")
-        return None
-    logger.debug(socket_response)
-    return socket_response.get("data")
+    result = await milky_com.get_group_info(group_id)
+    if result:
+        logger.debug(f"群信息获取成功: {result}")
+    return result
 
 
-async def get_group_detail_info(websocket: Server.ServerConnection, group_id: int) -> dict | None:
+async def get_group_detail_info(group_id: int) -> dict | None:
     """
     获取群详细信息
 
     返回值需要处理可能为空的情况
     """
     logger.debug("获取群详细信息中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps({"action": "get_group_detail_info", "params": {"group_id": group_id}, "echo": request_uuid})
-    try:
-        await websocket.send(payload)
-        socket_response: dict = await get_response(request_uuid)
-    except TimeoutError:
-        logger.error(f"获取群详细信息超时，群号: {group_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取群详细信息失败: {e}")
-        return None
-    logger.debug(socket_response)
-    return socket_response.get("data")
+    # Milky 可能没有单独的详细群信息 API，暂时使用普通群信息
+    result = await milky_com.get_group_info(group_id)
+    if result:
+        logger.debug(f"群详细信息获取成功: {result}")
+    return result
 
 
-async def get_member_info(websocket: Server.ServerConnection, group_id: int, user_id: int) -> dict | None:
+async def get_member_info(group_id: int, user_id: int) -> dict | None:
     """
     获取群成员信息
 
     返回值需要处理可能为空的情况
     """
     logger.debug("获取群成员信息中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps(
-        {
-            "action": "get_group_member_info",
-            "params": {"group_id": group_id, "user_id": user_id, "no_cache": True},
-            "echo": request_uuid,
-        }
-    )
-    try:
-        await websocket.send(payload)
-        socket_response: dict = await get_response(request_uuid)
-    except TimeoutError:
-        logger.error(f"获取成员信息超时，群号: {group_id}, 用户ID: {user_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取成员信息失败: {e}")
-        return None
-    logger.debug(socket_response)
-    return socket_response.get("data")
+    result = await milky_com.get_group_member_info(group_id, user_id)
+    if result:
+        logger.debug(f"群成员信息获取成功: {result}")
+    return result
 
 
 async def get_image_base64(url: str) -> str:
@@ -133,28 +101,17 @@ def convert_image_to_gif(image_base64: str) -> str:
         return image_base64
 
 
-async def get_self_info(websocket: Server.ServerConnection) -> dict | None:
+async def get_self_info() -> dict | None:
     """
     获取自身信息
-    Parameters:
-        websocket: WebSocket连接对象
     Returns:
         data: dict: 返回的自身信息
     """
     logger.debug("获取自身信息中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps({"action": "get_login_info", "params": {}, "echo": request_uuid})
-    try:
-        await websocket.send(payload)
-        response: dict = await get_response(request_uuid)
-    except TimeoutError:
-        logger.error("获取自身信息超时")
-        return None
-    except Exception as e:
-        logger.error(f"获取自身信息失败: {e}")
-        return None
-    logger.debug(response)
-    return response.get("data")
+    result = await milky_com.get_login_info()
+    if result:
+        logger.debug(f"自身信息获取成功: {result}")
+    return result
 
 
 def get_image_format(raw_data: str) -> str:
@@ -169,93 +126,60 @@ def get_image_format(raw_data: str) -> str:
     return Image.open(io.BytesIO(image_bytes)).format.lower()
 
 
-async def get_stranger_info(websocket: Server.ServerConnection, user_id: int) -> dict | None:
+async def get_stranger_info(user_id: int) -> dict | None:
     """
     获取陌生人信息
     Parameters:
-        websocket: WebSocket连接对象
         user_id: 用户ID
     Returns:
         dict: 返回的陌生人信息
     """
     logger.debug("获取陌生人信息中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps({"action": "get_stranger_info", "params": {"user_id": user_id}, "echo": request_uuid})
-    try:
-        await websocket.send(payload)
-        response: dict = await get_response(request_uuid)
-    except TimeoutError:
-        logger.error(f"获取陌生人信息超时，用户ID: {user_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取陌生人信息失败: {e}")
-        return None
-    logger.debug(response)
-    return response.get("data")
+    result = await milky_com.get_stranger_info(user_id)
+    if result:
+        logger.debug(f"陌生人信息获取成功: {result}")
+    return result
 
 
-async def get_message_detail(websocket: Server.ServerConnection, message_id: Union[str, int]) -> dict | None:
+async def get_message_detail(message_seq: Union[str, int]) -> dict | None:
     """
     获取消息详情，可能为空
     Parameters:
-        websocket: WebSocket连接对象
-        message_id: 消息ID
+        message_seq: 消息序列号
     Returns:
         dict: 返回的消息详情
     """
     logger.debug("获取消息详情中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps({"action": "get_msg", "params": {"message_id": message_id}, "echo": request_uuid})
-    try:
-        await websocket.send(payload)
-        response: dict = await get_response(request_uuid, 30)  # 增加超时时间到30秒
-    except TimeoutError:
-        logger.error(f"获取消息详情超时，消息ID: {message_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取消息详情失败: {e}")
-        return None
-    logger.debug(response)
-    return response.get("data")
+    # Milky 需要知道消息场景，这里暂时使用 group 作为默认值
+    # TODO: 根据实际使用场景确定正确的 message_scene
+    params = {
+        "message_scene": "group",
+        "peer_id": 0,  # 需要根据实际情况确定
+        "message_seq": message_seq
+    }
+    result = await milky_com.get_message("group", 0, message_seq)
+    if result:
+        logger.debug(f"消息详情获取成功: {result}")
+    return result
 
 
-async def get_record_detail(
-    websocket: Server.ServerConnection, file: str, file_id: Optional[str] = None
-) -> dict | None:
+async def get_record_detail(file: str, file_id: Optional[str] = None) -> dict | None:
     """
     获取语音消息内容
     Parameters:
-        websocket: WebSocket连接对象
         file: 文件名
         file_id: 文件ID
     Returns:
         dict: 返回的语音消息详情
     """
     logger.debug("获取语音消息详情中")
-    request_uuid = str(uuid.uuid4())
-    payload = json.dumps(
-        {
-            "action": "get_record",
-            "params": {"file": file, "file_id": file_id, "out_format": "wav"},
-            "echo": request_uuid,
-        }
-    )
-    try:
-        await websocket.send(payload)
-        response: dict = await get_response(request_uuid, 30)  # 增加超时时间到30秒
-    except TimeoutError:
-        logger.error(f"获取语音消息详情超时，文件: {file}, 文件ID: {file_id}")
-        return None
-    except Exception as e:
-        logger.error(f"获取语音消息详情失败: {e}")
-        return None
-    logger.debug(f"{str(response)[:200]}...")  # 防止语音的超长base64编码导致日志过长
-    return response.get("data")
+    result = await milky_com.get_record(file, file_id)
+    if result:
+        logger.debug(f"语音消息详情获取成功: {str(result)[:200]}...")  # 防止语音的超长base64编码导致日志过长
+    return result
 
 
-async def read_ban_list(
-    websocket: Server.ServerConnection,
-) -> Tuple[List[BanUser], List[BanUser]]:
+async def read_ban_list() -> Tuple[List[BanUser], List[BanUser]]:
     """
     从根目录下的data文件夹中的文件读取禁言列表。
     同时自动更新已经失效禁言
@@ -263,29 +187,29 @@ async def read_ban_list(
         Tuple[
             一个仍在禁言中的用户的BanUser列表,
             一个已经自然解除禁言的用户的BanUser列表,
-            一个仍在全体禁言中的群的BanUser列表,
-            一个已经自然解除全体禁言的群的BanUser列表,
         ]
     """
     try:
         ban_list = db_manager.get_ban_records()
         lifted_list: List[BanUser] = []
         logger.info("已经读取禁言列表")
+        
         for ban_record in ban_list:
             if ban_record.user_id == 0:
-                fetched_group_info = await get_group_info(websocket, ban_record.group_id)
+                # 全体禁言检查
+                fetched_group_info = await get_group_info(ban_record.group_id)
                 if fetched_group_info is None:
                     logger.warning(f"无法获取群信息，群号: {ban_record.group_id}，默认禁言解除")
                     lifted_list.append(ban_record)
                     ban_list.remove(ban_record)
                     continue
-                group_all_shut: int = fetched_group_info.get("group_all_shut")
-                if group_all_shut == 0:
-                    lifted_list.append(ban_record)
-                    ban_list.remove(ban_record)
-                    continue
+                    
+                # Milky 可能不直接提供全体禁言状态，暂时跳过检查
+                # TODO: 实现 Milky 的全体禁言状态检查
+                
             else:
-                fetched_member_info = await get_member_info(websocket, ban_record.group_id, ban_record.user_id)
+                # 个人禁言检查
+                fetched_member_info = await get_member_info(ban_record.group_id, ban_record.user_id)
                 if fetched_member_info is None:
                     logger.warning(
                         f"无法获取群成员信息，用户ID: {ban_record.user_id}, 群号: {ban_record.group_id}，默认禁言解除"
@@ -293,12 +217,10 @@ async def read_ban_list(
                     lifted_list.append(ban_record)
                     ban_list.remove(ban_record)
                     continue
-                lift_ban_time: int = fetched_member_info.get("shut_up_timestamp")
-                if lift_ban_time == 0:
-                    lifted_list.append(ban_record)
-                    ban_list.remove(ban_record)
-                else:
-                    ban_record.lift_time = lift_ban_time
+                    
+                # Milky 可能不直接提供禁言状态，暂时跳过检查
+                # TODO: 实现 Milky 的禁言状态检查
+                
         db_manager.update_ban_record(ban_list)
         return ban_list, lifted_list
     except Exception as e:

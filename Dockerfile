@@ -1,20 +1,31 @@
-FROM python:3.13.5-slim
-LABEL authors="infinitycat233"
+FROM python:3.11-slim
 
-# Copy uv and maim_message
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-COPY maim_message /maim_message
-COPY requirements.txt /requirements.txt
+# 设置工作目录
+WORKDIR /app
 
-# Install requirements
-RUN uv pip install --system --upgrade pip
-RUN uv pip install --system -e /maim_message
-RUN uv pip install --system -r /requirements.txt
+# 设置环境变量
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
-WORKDIR /adapters
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制源代码
 COPY . .
 
-EXPOSE 8095
+# 创建数据目录
+RUN mkdir -p /app/data
 
-ENTRYPOINT ["python", "main.py"]
+# 暴露端口（如果需要的话）
+EXPOSE 8000
+
+# 设置启动命令
+CMD ["python", "run.py"]

@@ -2,6 +2,7 @@
 log/
 logs/
 out/
+tests/
 
 .env
 .env.*
@@ -13,7 +14,7 @@ __pycache__/
 *$py.class
 llm_statistics.txt
 mongodb
-napcat
+milky
 run_dev.bat
 elua.confirmed
 # C extensions
@@ -272,6 +273,6 @@ $RECYCLE.BIN/
 config.toml
 config.toml.back
 test
-data/NapcatAdapter.db
-data/NapcatAdapter.db-shm
-data/NapcatAdapter.db-wal
+data/MilkyAdapter.db
+data/MilkyAdapter.db-shm
+data/MilkyAdapter.db-wal

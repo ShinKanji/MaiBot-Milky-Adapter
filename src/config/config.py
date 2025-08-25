@@ -15,7 +15,7 @@ from src.config.official_configs import (
     ChatConfig,
     DebugConfig,
     MaiBotServerConfig,
-    NapcatServerConfig,
+    MilkyServerConfig,
     NicknameConfig,
     VoiceConfig,
 )
@@ -113,7 +113,7 @@ class Config(ConfigBase):
     """总配置类"""
 
     nickname: NicknameConfig
-    napcat_server: NapcatServerConfig
+    milky_server: MilkyServerConfig
     maibot_server: MaiBotServerConfig
     chat: ChatConfig
     voice: VoiceConfig

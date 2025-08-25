@@ -5,10 +5,12 @@ version = "0.1.1" # 版本号
 [nickname] # 现在没用
 nickname = ""
 
-[napcat_server] # Napcat连接的ws服务设置
-host = "localhost"      # Napcat设定的主机地址
-port = 8095             # Napcat设定的端口 
-heartbeat_interval = 30 # 与Napcat设置的心跳相同（按秒计）
+[milky_server] # Milky连接的HTTP服务设置
+host = "localhost"      # Milky设定的主机地址
+port = 8080             # Milky设定的端口 
+event_endpoint = "/event" # Milky事件推送端点
+api_endpoint = "/api"     # Milky API调用端点
+access_token = ""         # Milky API访问令牌，用于鉴权
 
 [maibot_server] # 连接麦麦的ws服务设置
 host = "localhost" # 麦麦在.env文件中设置的主机地址，即HOST字段
