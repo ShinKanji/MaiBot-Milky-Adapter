@@ -1,4 +1,4 @@
-# MaiBot 与 Milky 的 Adapter
+# 也许能用的 MaiBot 与 Milky 的 Adapter
 运行方式：独立/放在MaiBot本体作为插件
 
 # 使用说明
@@ -133,44 +133,6 @@ ws://{IP}:{端口}/event?access_token={access_token}
 }
 ```
 
-# 测试
-
-项目包含完整的测试套件，用于验证 Milky 适配器的功能：
-
-## 运行所有测试
-```bash
-python run_tests.py
-```
-
-## 运行单个测试
-```bash
-# 测试 API 调用
-python tests/test_api.py
-
-# 测试 Milky 通信层
-python tests/test_milky.py
-
-# 测试 API 合规性
-python tests/test_milky_api_compliance.py
-
-# 测试 WebSocket 合规性
-python tests/test_websocket_compliance.py
-```
-
-## 测试内容
-
-- **test_api.py**: 测试工具函数中的 API 调用
-- **test_milky.py**: 测试 Milky 通信层的基本功能
-- **test_milky_api_compliance.py**: 验证 API 调用是否符合 Milky 规范
-- **test_websocket_compliance.py**: 验证 WebSocket 事件推送是否符合 Milky 规范
-
-## 测试要求
-
-运行测试前请确保：
-1. Milky 服务正在运行
-2. 配置文件 `config.toml` 已正确设置
-3. 所有依赖包已安装：`pip install -r requirements.txt`
-
 ## 支持的事件类型
 - `message_receive`: 消息接收事件
 - `message_recall`: 消息撤回事件
@@ -226,6 +188,8 @@ python tests/test_websocket_compliance.py
   - [x] 群踢人功能
 
 # 特别鸣谢
+感谢[@UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)的 NapCat Adapter 代码参考
+
 特别感谢[@Maple127667](https://github.com/Maple127667)对本项目代码思路的支持
 
 以及[@墨梓柒](https://github.com/DrSmoothl)对部分代码想法的支持
