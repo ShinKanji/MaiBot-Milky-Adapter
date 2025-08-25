@@ -73,6 +73,7 @@ class MilkyComLayer:
                             # 解析 JSON 事件数据
                             event_data = json.loads(message)
                             logger.debug(f"收到 Milky 事件: {event_data.get('event_type', 'unknown')}")
+                            logger.debug(f"完整的事件数据: {event_data}")
                             await self._handle_event(event_data)
                         except json.JSONDecodeError as e:
                             logger.error(f"解析事件数据失败: {e}, 原始数据: {message}")
@@ -97,10 +98,14 @@ class MilkyComLayer:
     async def _handle_event(self, event_data: Dict[str, Any]):
         """处理接收到的事件"""
         event_type = event_data.get("event_type")
+        logger.debug(f"处理事件类型: {event_type}")
+        logger.debug(f"事件数据结构: {event_data}")
+        
         if event_type:
             handler = self.event_handlers.get(event_type)
             if handler:
                 try:
+                    logger.debug(f"调用事件处理器: {event_type}")
                     await handler(event_data)
                 except Exception as e:
                     logger.error(f"执行事件处理器 {event_type} 时发生错误: {e}")

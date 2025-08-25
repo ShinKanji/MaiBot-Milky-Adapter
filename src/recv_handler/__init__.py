@@ -48,6 +48,7 @@ class RealMessageType:  # 实际消息分类
     record = "record"  # 语音
     video = "video"  # 视频
     at = "at"  # @某人
+    mention = "mention"  # @某人（Milky 使用此类型名）
     rps = "rps"  # 猜拳魔法表情
     dice = "dice"  # 骰子
     shake = "shake"  # 私聊窗口抖动（只收）
