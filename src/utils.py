@@ -1,7 +1,7 @@
-import aiohttp
-import json
 import base64
-import uuid
+import requests
+import certifi
+import base64
 import urllib3
 import ssl
 import io
@@ -64,16 +64,12 @@ async def get_member_info(group_id: int, user_id: int) -> dict | None:
 
 
 async def get_image_base64(url: str) -> str:
-    # sourcery skip: raise-specific-error
     """获取图片/表情包的Base64"""
     logger.debug(f"下载图片: {url}")
-    http = SSLAdapter()
     try:
-        response = http.request("GET", url, timeout=10)
-        if response.status != 200:
-            raise Exception(f"HTTP Error: {response.status}")
-        image_bytes = response.data
-        return base64.b64encode(image_bytes).decode("utf-8")
+        response = requests.get(url, timeout=10, verify=certifi.where())
+        response.raise_for_status()  # 如果不是200会抛异常
+        return base64.b64encode(response.content).decode("utf-8")
     except Exception as e:
         logger.error(f"图片下载失败: {str(e)}")
         raise
