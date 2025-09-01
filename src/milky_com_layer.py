@@ -283,10 +283,18 @@ class MilkyComLayer:
         """获取登录信息"""
         return await self.call_api("get_login_info", {})
         
-    async def get_stranger_info(self, user_id: int) -> Dict[str, Any]:
-        """获取陌生人信息"""
+    async def get_user_profile(self, user_id: int) -> Dict[str, Any]:
+        """获取用户个人信息"""
         params = {"user_id": user_id}
-        return await self.call_api("get_stranger_info", params)
+        return await self.call_api("get_user_profile", params)
+        
+    async def get_friend_info(self, user_id: int, no_cache: bool = False) -> Dict[str, Any]:
+        """获取好友信息"""
+        params = {
+            "user_id": user_id,
+            "no_cache": no_cache
+        }
+        return await self.call_api("get_friend_info", params)
         
     async def get_message(self, message_scene: str, peer_id: int, message_seq: int) -> Dict[str, Any]:
         """获取消息详情"""

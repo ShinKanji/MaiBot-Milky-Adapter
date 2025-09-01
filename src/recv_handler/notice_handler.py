@@ -9,15 +9,9 @@ from src.database import BanUser, db_manager, is_identical
 from . import NoticeType, ACCEPT_FORMAT
 from .message_sending import message_send_instance
 from .message_handler import message_handler
-from maim_message import FormatInfo, UserInfo, GroupInfo, Seg, BaseMessageInfo, MessageBase
+from maim_message import FormatInfo, UserInfo, GroupInfo, Seg, BaseMessageInfo, MessageBase, SenderInfo, ReceiverInfo
 
-from src.utils import (
-    get_group_info,
-    get_member_info,
-    get_self_info,
-    get_stranger_info,
-    read_ban_list,
-)
+from src.utils import get_member_info
 
 notice_queue: asyncio.Queue[MessageBase] = asyncio.Queue(maxsize=100)
 unsuccessful_notice_queue: asyncio.Queue[MessageBase] = asyncio.Queue(maxsize=3)
@@ -29,6 +23,84 @@ class NoticeHandler:
 
     def __init__(self):
         pass
+
+    def _create_sender_info(self, user_id: int, user_nickname: str, user_cardname: str, group_id: Optional[int] = None, group_name: str = "") -> SenderInfo:
+        """
+        创建发送者信息
+        
+        Args:
+            user_id: 用户ID
+            user_nickname: 用户昵称
+            user_cardname: 用户群昵称
+            group_id: 群ID（如果是群聊）
+            group_name: 群名称（如果是群聊）
+            
+        Returns:
+            SenderInfo: 发送者信息对象
+        """
+        # 创建用户信息
+        user_info = UserInfo(
+            platform=global_config.maibot_server.platform_name,
+            user_id=str(user_id),
+            user_nickname=user_nickname,
+            user_cardname=user_cardname,
+        )
+        
+        # 创建群组信息（如果是群聊）
+        group_info = None
+        if group_id:
+            group_info = GroupInfo(
+                platform=global_config.maibot_server.platform_name,
+                group_id=str(group_id),
+                group_name=group_name,
+            )
+        
+        # 创建发送者信息
+        return SenderInfo(
+            user_info=user_info,
+            group_info=group_info,
+        )
+
+    def _create_receiver_info(self, target_user_id: Optional[int] = None, target_user_nickname: str = "", 
+                             group_id: Optional[int] = None, group_name: str = "", 
+                             is_bot: bool = False) -> ReceiverInfo:
+        """
+        创建接收者信息
+        
+        Args:
+            target_user_id: 目标用户ID（私聊时）
+            target_user_nickname: 目标用户昵称
+            group_id: 群ID（群聊时）
+            group_name: 群名称（群聊时）
+            is_bot: 是否是机器人
+            
+        Returns:
+            ReceiverInfo: 接收者信息对象
+        """
+        # 创建用户信息（私聊时）
+        user_info = None
+        if target_user_id and not is_bot:
+            user_info = UserInfo(
+                platform=global_config.maibot_server.platform_name,
+                user_id=str(target_user_id),
+                user_nickname=target_user_nickname,
+                user_cardname=target_user_nickname,
+            )
+        
+        # 创建群组信息（群聊时）
+        group_info = None
+        if group_id:
+            group_info = GroupInfo(
+                platform=global_config.maibot_server.platform_name,
+                group_id=str(group_id),
+                group_name=group_name,
+            )
+        
+        # 创建接收者信息
+        return ReceiverInfo(
+            user_info=user_info,
+            group_info=group_info,
+        )
 
     async def handle_notice(self, raw_message: dict) -> None:
         # 从 Milky 事件中提取通知数据
@@ -104,6 +176,30 @@ class NoticeHandler:
                 group_name=group_name,
             )
 
+        # 从user_info中获取用户信息
+        user_nickname = user_info.user_nickname if user_info else f"用户{user_id}"
+        user_cardname = user_info.user_cardname if user_info else f"用户{user_id}"
+        
+        # 创建发送者信息
+        sender_info = self._create_sender_info(
+            user_id=user_id,
+            user_nickname=user_nickname,
+            user_cardname=user_cardname,
+            group_id=group_id,
+            group_name=group_name,
+        )
+        
+        # 创建接收者信息
+        # 戳一戳事件的接收者是被戳的人
+        target_nickname = f"用户{target_id}" if target_id else "未知目标"  # 使用用户ID作为默认昵称
+        receiver_info = self._create_receiver_info(
+            target_user_id=target_id,
+            target_user_nickname=target_nickname,
+            group_id=group_id,
+            group_name=group_name,
+            is_bot=False,
+        )
+        
         message_info: BaseMessageInfo = BaseMessageInfo(
             platform=global_config.maibot_server.platform_name,
             message_id="notice",
@@ -116,6 +212,8 @@ class NoticeHandler:
                 accept_format=ACCEPT_FORMAT,
             ),
             additional_config={"target_id": target_id},  # 在这里塞了一个target_id，方便mmc那边知道被戳的人是谁
+            sender_info=sender_info,
+            receiver_info=receiver_info,
         )
 
         message_base: MessageBase = MessageBase(
@@ -178,9 +276,25 @@ class NoticeHandler:
         self_id = event_data.get("self_id", 0)
         target_id = event_data.get("receiver_id") or event_data.get("user_id")
         
-        # 获取用户信息
-        user_name = event_data.get("sender", {}).get("nickname", "QQ用户")
-        user_cardname = event_data.get("sender", {}).get("card", "QQ用户")
+        # 获取用户信息 - 修复不存在的sender字段
+        # 从sender_id获取用户ID，然后调用API获取详细信息
+        user_id = event_data.get("sender_id") or event_data.get("user_id")
+        user_name = f"用户{user_id}" if user_id else "未知用户"
+        user_cardname = f"用户{user_id}" if user_id else "未知用户"
+        
+        # 如果有用户ID，尝试获取详细信息
+        if user_id:
+            try:
+                member_info_result = await get_member_info(group_id, user_id)
+                if member_info_result.get("status") == "ok":
+                    member_data = member_info_result.get("data", {})
+                    user_name = member_data.get("nickname", f"用户{user_id}")
+                    user_cardname = member_data.get("card", f"用户{user_id}")
+                    logger.debug(f"通过API获取到群成员信息: nickname={user_name}, card={user_cardname}")
+            except Exception as e:
+                logger.error(f"调用API获取用户信息时发生错误: {e}")
+                user_name = f"用户{user_id}" if user_id else "未知用户"
+                user_cardname = f"用户{user_id}" if user_id else "未知用户"
 
         # 计算Seg
         if self_id == target_id:
@@ -192,7 +306,7 @@ class NoticeHandler:
         else:
             # 老实说这一步判定没啥意义，毕竟私聊是没有其他人之间的戳一戳，但是感觉可以有这个判定来强限制群聊环境
             if group_id:
-                target_name = "QQ用户"
+                target_name = f"用户{target_id}" if target_id else "未知目标"
                 display_name = user_name
             else:
                 return None, None
@@ -220,7 +334,7 @@ class NoticeHandler:
 
         # 计算user_info
         operator_id = event_data.get("operator_id")
-        operator_nickname: str = "QQ用户"
+        operator_nickname: str = f"用户{operator_id}" if operator_id else "未知操作者"
         operator_cardname: str = None
 
         operator_info: UserInfo = UserInfo(
@@ -233,7 +347,7 @@ class NoticeHandler:
         # 计算Seg
         user_id = event_data.get("user_id")
         banned_user_info: UserInfo = None
-        user_nickname: str = "QQ用户"
+        user_nickname: str = f"用户{user_id}" if user_id else "未知用户"
         user_cardname: str = None
         sub_type: str = None
 
@@ -276,7 +390,7 @@ class NoticeHandler:
 
         # 计算user_info
         operator_id = event_data.get("operator_id")
-        operator_nickname: str = "QQ用户"
+        operator_nickname: str = f"用户{operator_id}" if operator_id else "未知操作者"
         operator_cardname: str = None
 
         operator_info: UserInfo = UserInfo(
@@ -288,7 +402,7 @@ class NoticeHandler:
 
         # 计算Seg
         sub_type: str = None
-        user_nickname: str = "QQ用户"
+        user_nickname: str = f"用户{user_id}" if user_id else "未知用户"
         user_cardname: str = None
         lifted_user_info: UserInfo = None
 
@@ -371,6 +485,15 @@ class NoticeHandler:
                     group_name=group_name,
                 )
 
+                # 自然解除禁言没有发送者，只有接收者（群）
+                sender_info = None
+                
+                # 创建接收者信息（群）
+                receiver_info = self._create_receiver_info(
+                    group_id=group_id,
+                    group_name=group_name,
+                )
+                
                 message_info: BaseMessageInfo = BaseMessageInfo(
                     platform=global_config.maibot_server.platform_name,
                     message_id="notice",
@@ -379,6 +502,8 @@ class NoticeHandler:
                     group_info=group_info,
                     template_info=None,
                     format_info=None,
+                    sender_info=sender_info,
+                    receiver_info=receiver_info,
                 )
 
                 message_base: MessageBase = MessageBase(
@@ -415,7 +540,7 @@ class NoticeHandler:
                 },
             )
 
-        user_nickname: str = "QQ用户"
+        user_nickname: str = f"用户{user_id}" if user_id else "未知用户"
         user_cardname: str = None
 
         lifted_user_info: UserInfo = UserInfo(

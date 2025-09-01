@@ -1,13 +1,13 @@
 from src.logger import logger
 from src.config import global_config
-from src.utils import get_image_base64
+from src.utils import get_image_base64,get_member_info, get_user_profile
 from .qq_emoji_list import qq_face
 from .message_sending import message_send_instance
 from . import RealMessageType, MessageType, ACCEPT_FORMAT
 
 import time
 import json
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict
 
 from maim_message import (
     UserInfo,
@@ -17,12 +17,92 @@ from maim_message import (
     MessageBase,
     TemplateInfo,
     FormatInfo,
+    SenderInfo,
+    ReceiverInfo,
 )
 
 
 class MessageHandler:
     def __init__(self):
         self.bot_id_list: Dict[int, bool] = {}
+
+    def _create_sender_info(self, user_id: int, user_nickname: str, user_cardname: str, group_id: Optional[int] = None, group_name: str = "") -> SenderInfo:
+        """
+        创建发送者信息
+        
+        Args:
+            user_id: 用户ID
+            user_nickname: 用户昵称
+            user_cardname: 用户群昵称
+            group_id: 群ID（如果是群聊）
+            group_name: 群名称（如果是群聊）
+            
+        Returns:
+            SenderInfo: 发送者信息对象
+        """
+        # 创建用户信息
+        user_info = UserInfo(
+            platform=global_config.maibot_server.platform_name,
+            user_id=str(user_id),
+            user_nickname=user_nickname,
+            user_cardname=user_cardname,
+        )
+        
+        # 创建群组信息（如果是群聊）
+        group_info = None
+        if group_id:
+            group_info = GroupInfo(
+                platform=global_config.maibot_server.platform_name,
+                group_id=str(group_id),
+                group_name=group_name,
+            )
+        
+        # 创建发送者信息
+        return SenderInfo(
+            user_info=user_info,
+            group_info=group_info,
+        )
+
+    def _create_receiver_info(self, target_user_id: Optional[int] = None, target_user_nickname: str = "", 
+                             group_id: Optional[int] = None, group_name: str = "", 
+                             is_bot: bool = False) -> ReceiverInfo:
+        """
+        创建接收者信息
+        
+        Args:
+            target_user_id: 目标用户ID（私聊时）
+            target_user_nickname: 目标用户昵称
+            group_id: 群ID（群聊时）
+            group_name: 群名称（群聊时）
+            is_bot: 是否是机器人
+            
+        Returns:
+            ReceiverInfo: 接收者信息对象
+        """
+        # 创建用户信息（私聊时）
+        user_info = None
+        if target_user_id and not is_bot:
+            user_info = UserInfo(
+                platform=global_config.maibot_server.platform_name,
+                user_id=str(target_user_id),
+                user_nickname=target_user_nickname,
+                user_cardname=target_user_nickname,
+            )
+        
+        # 创建群组信息（群聊时）
+        group_info = None
+        if group_id:
+            group_info = GroupInfo(
+                platform=global_config.maibot_server.platform_name,
+                group_id=str(group_id),
+                group_name=group_name,
+            )
+        
+        # 创建接收者信息
+        return ReceiverInfo(
+            user_info=user_info,
+            group_info=group_info,
+        )
 
     async def check_allow_to_chat(
         self,
@@ -136,17 +216,48 @@ class MessageHandler:
             user_nickname = group_member.get("nickname", "")
             user_cardname = group_member.get("card", "")
             logger.debug(f"从 group_member 获取发送者信息: user_id={user_id}, nickname={user_nickname}, card={user_cardname}")
-        # 其次从 sender 获取
-        elif "sender" in actual_message_data:
-            sender_info = actual_message_data.get("sender", {})
-            user_id = sender_info.get("user_id")
-            user_nickname = sender_info.get("nickname", "")
-            user_cardname = sender_info.get("card", "")
-            logger.debug(f"从 sender 获取发送者信息: user_id={user_id}, nickname={user_nickname}, card={user_cardname}")
-        # 最后从 sender_id 获取
+        # 从 sender_id 获取（所有消息类型都有）
         elif "sender_id" in actual_message_data:
             user_id = actual_message_data.get("sender_id")
             logger.debug(f"从 sender_id 获取发送者ID: {user_id}")
+            
+            # 对于私聊消息或没有group_member的消息，调用API获取用户信息
+            if message_type == MessageType.private or not group_id:
+                try:
+                    # 调用utils中的功能获取用户信息
+                    user_info_result = await get_user_profile(user_id)
+                    if user_info_result.get("status") == "ok":
+                        user_data = user_info_result.get("data", {})
+                        user_nickname = user_data.get("nickname", f"用户{user_id}")
+                        user_cardname = user_data.get("nickname", f"用户{user_id}")
+                        logger.debug(f"通过API获取到用户信息: nickname={user_nickname}")
+                    else:
+                        logger.warning(f"获取用户信息失败: {user_info_result}")
+                        user_nickname = f"用户{user_id}"
+                        user_cardname = f"用户{user_id}"
+                except Exception as e:
+                    logger.error(f"调用API获取用户信息时发生错误: {e}")
+                    # 如果API调用失败，使用用户ID作为昵称
+                    user_nickname = f"用户{user_id}"
+                    user_cardname = f"用户{user_id}"
+            else:
+                # 群聊消息但没有group_member信息，尝试获取群成员信息
+                try:
+                    member_info_result = await get_member_info(group_id, user_id)
+                    if member_info_result.get("status") == "ok":
+                        member_data = member_info_result.get("data", {})
+                        user_nickname = member_data.get("nickname", f"用户{user_id}")
+                        user_cardname = member_data.get("card", f"用户{user_id}")
+                        logger.debug(f"通过API获取到群成员信息: nickname={user_nickname}, card={user_cardname}")
+                    else:
+                        logger.warning(f"获取群成员信息失败: {member_info_result}")
+                        user_nickname = f"用户{user_id}"
+                        user_cardname = f"用户{user_id}"
+                except Exception as e:
+                    logger.error(f"调用API获取群成员信息时发生错误: {e}")
+                    # 如果API调用失败，使用用户ID作为昵称
+                    user_nickname = f"用户{user_id}"
+                    user_cardname = f"用户{user_id}"
         
         if not user_id:
             logger.warning("无法获取发送者ID，跳过消息处理")
@@ -212,6 +323,25 @@ class MessageHandler:
         if global_config.voice.use_tts:
             additional_config["allow_tts"] = True
 
+        # 创建发送者信息
+        sender_info = self._create_sender_info(
+            user_id=user_id,
+            user_nickname=user_nickname,
+            user_cardname=user_cardname,
+            group_id=group_id,
+            group_name=group_name,
+        )
+        
+        # 创建接收者信息
+        # 私聊时接收者是机器人，群聊时接收者是群
+        receiver_info = self._create_receiver_info(
+            target_user_id=event_data.get("self_id") if message_type == MessageType.private else None,
+            target_user_nickname="机器人" if message_type == MessageType.private else "",
+            group_id=group_id,
+            group_name=group_name,
+            is_bot=message_type == MessageType.private,
+        )
+        
         # 消息信息
         message_info: BaseMessageInfo = BaseMessageInfo(
             platform=global_config.maibot_server.platform_name,
@@ -222,6 +352,8 @@ class MessageHandler:
             template_info=template_info,
             format_info=format_info,
             additional_config=additional_config,
+            sender_info=sender_info,
+            receiver_info=receiver_info,
         )
 
         # 处理实际信息 - 修复 Milky 数据结构匹配问题

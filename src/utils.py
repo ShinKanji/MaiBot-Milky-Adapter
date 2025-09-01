@@ -110,6 +110,19 @@ async def get_self_info() -> dict | None:
     return result
 
 
+async def get_user_profile(user_id: int) -> dict | None:
+    """
+    获取用户信息
+
+    返回值需要处理可能为空的情况
+    """
+    logger.debug("获取用户信息中")
+    result = await milky_com.get_user_profile(user_id)
+    if result:
+        logger.debug(f"用户信息获取成功: {result}")
+    return result
+
+
 def get_image_format(raw_data: str) -> str:
     """
     从Base64编码的数据中确定图片的格式。
@@ -120,22 +133,6 @@ def get_image_format(raw_data: str) -> str:
     """
     image_bytes = base64.b64decode(raw_data)
     return Image.open(io.BytesIO(image_bytes)).format.lower()
-
-
-async def get_stranger_info(user_id: int) -> dict | None:
-    """
-    获取陌生人信息
-    Parameters:
-        user_id: 用户ID
-    Returns:
-        dict: 返回的陌生人信息
-    """
-    logger.debug("获取陌生人信息中")
-    result = await milky_com.get_stranger_info(user_id)
-    if result:
-        logger.debug(f"陌生人信息获取成功: {result}")
-    return result
-
 
 async def get_message_detail(message_seq: Union[str, int]) -> dict | None:
     """
